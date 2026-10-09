@@ -1,0 +1,24 @@
+{
+  "kind": "custom_token",
+  "token": {
+    "contract": "GENESISToken",
+    "name": "Genesis Agents",
+    "symbol": "GENESIS",
+    "decimals": 18,
+    "constructorArgs": [],
+    "totalSupply": "1000000000000000000000000000"
+  },
+  "contracts": [],
+  "pool": {
+    "pairedCurrency": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+    "fee": 12500,
+    "tickSpacing": 60,
+    "initialPrice": "125270724187523965593206900"
+  },
+  "economics": {
+    "poolBps": 9000,
+    "initialMarketCapWei": "2500000000000000000000",
+    "remainderTo": "0x000000000000000000000000000000000000dead"
+  },
+  "notes": "Genesis Agents (GENESIS): fixed supply of 1,000,000,000 tokens (1e27 minor units, 18 decimals) minted once to the deployer (the launch factory) in a no-argument constructor. No owner, no admin, no mint, no burn, no fee, no tax, no limit; plain ERC-20 transfers. No proxy, delegatecall or selfdestruct. The factory sends the swarm's 10% to the Merkle distributor, seeds the Uniswap v4 pool (PoolManager 0x000000000004444c5dc75cB358380D2e3dE08A90) with 90% paired with IMD, and forwards any remainder to 0x000000000000000000000000000000000000dead. pool.initialPrice is provenance only; the deployer derives the opening price from economics.initialMarketCapWei and the deployed currency order."
+}
