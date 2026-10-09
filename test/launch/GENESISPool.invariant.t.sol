@@ -8,10 +8,15 @@ import {PoolKey} from "../vendor/v4-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "../vendor/v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "../vendor/v4-core/src/types/BalanceDelta.sol";
 import {StateLibrary} from "../vendor/v4-core/src/libraries/StateLibrary.sol";
+import {FullMath} from "../vendor/v4-core/src/libraries/FullMath.sol";
 import {LaunchHarness, LaunchFactoryStub, Trader, PairTokenStub, IERC20Like} from "./LaunchHarness.sol";
 
 /// @notice Random buys, sells, holder-to-holder transfers and fee collections against the seeded pool.
 contract PoolHandler is Test {
+    using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
+
+    IPoolManager public manager;
     GENESISToken public token;
     PairTokenStub public imd;
     LaunchFactoryStub public factory;
@@ -27,7 +32,7 @@ contract PoolHandler is Test {
     uint256 public calls;
 
     constructor(
-        IPoolManager manager,
+        IPoolManager manager_,
         GENESISToken token_,
         PairTokenStub imd_,
         LaunchFactoryStub factory_,
@@ -35,6 +40,7 @@ contract PoolHandler is Test {
         LaunchFactoryStub.Seed memory seed_,
         bool tokenIsCurrency0_
     ) {
+        manager = manager_;
         token = token_;
         imd = imd_;
         factory = factory_;
@@ -42,7 +48,7 @@ contract PoolHandler is Test {
         seedParams = seed_;
         tokenIsCurrency0 = tokenIsCurrency0_;
         for (uint256 i; i < 3; ++i) {
-            traders.push(new Trader(manager));
+            traders.push(new Trader(manager_));
         }
     }
 
@@ -59,8 +65,11 @@ contract PoolHandler is Test {
     function buyExactOut(uint256 traderSeed, uint256 tokensOut) external {
         Trader trader = traders[traderSeed % traders.length];
         tokensOut = bound(tokensOut, 1e9, 10_000_000 ether);
-        // Enough IMD for the worst case at the opening price plus a wide margin.
-        uint256 budget = tokensOut / 100_000 + 1 ether;
+        // Fund the trader from the pool's current price, not the opening one: a run of buys can push the
+        // price many times above the opening, and a handler call inside its own bounds must never revert.
+        // Twice the fee-inclusive no-slippage cost covers the slippage of a 10M buy against a seed of 900M,
+        // and the extra 1 IMD covers rounding at tiny sizes.
+        uint256 budget = _quoteExactOutNoSlippage(tokensOut) * 2 + 1 ether;
         imd.mint(address(trader), budget);
         imdMinted += budget;
         trader.swap(key, !tokenIsCurrency0, int256(tokensOut));
@@ -95,6 +104,17 @@ contract PoolHandler is Test {
 
     function traderCount() external view returns (uint256) {
         return traders.length;
+    }
+
+    /// @dev IMD needed for `tokensOut` at the current sqrt price with the LP fee added back and no slippage.
+    ///      price = sqrtP^2 / 2^192 is currency1 per currency0.
+    function _quoteExactOutNoSlippage(uint256 tokensOut) internal view returns (uint256) {
+        (uint160 sqrtP,,,) = manager.getSlot0(key.toId());
+        uint256 priceX192 = uint256(sqrtP) * uint256(sqrtP);
+        uint256 imdNoFee = tokenIsCurrency0
+            ? FullMath.mulDivRoundingUp(tokensOut, priceX192, 1 << 192)
+            : FullMath.mulDivRoundingUp(tokensOut, 1 << 192, priceX192);
+        return FullMath.mulDivRoundingUp(imdNoFee, 1_000_000, 1_000_000 - key.fee);
     }
 }
 

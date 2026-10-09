@@ -33,7 +33,11 @@ contract GENESISTokenFuzzTest is Test {
         GENESISToken t = new GENESISToken();
         assertEq(t.balanceOf(who), SUPPLY);
         assertEq(t.totalSupply(), SUPPLY);
-        assertEq(t.balanceOf(deployer), 0);
+        // The fixture's deployer holds the new supply only if it is the one who deployed it.
+        assertEq(t.balanceOf(deployer), who == deployer ? SUPPLY : 0);
+        // ...and the new deployment never touches the fixture token's balances.
+        assertEq(token.balanceOf(who), who == deployer ? SUPPLY : 0);
+        assertEq(token.balanceOf(deployer), SUPPLY);
     }
 
     function test_twoDeploymentsAreIndependent() public {
@@ -181,7 +185,10 @@ contract GENESISTokenFuzzTest is Test {
         assertEq(token.allowance(deployer, spender), allowed - amount, "allowance not reduced by exactly the amount");
         assertEq(token.balanceOf(to), amount);
         assertEq(token.balanceOf(deployer), SUPPLY - amount);
-        assertEq(token.balanceOf(spender), spender == to ? amount : 0, "the spender received tokens it did not ask for");
+        // `to != deployer`, so the spender is the recipient, the owner itself (approving and pulling from
+        // its own balance), or a stranger who must end with nothing.
+        uint256 expectedSpender = spender == to ? amount : (spender == deployer ? SUPPLY - amount : 0);
+        assertEq(token.balanceOf(spender), expectedSpender, "the spender received tokens it did not ask for");
     }
 
     function testFuzz_transferFromWithExactAllowanceLeavesZero(uint256 amount) public {
@@ -299,8 +306,11 @@ contract GENESISTokenFuzzTest is Test {
         vm.assume(a != address(0) && b != address(0) && a != b);
         vm.prank(deployer);
         token.approve(a, amount);
+        assertEq(token.allowance(deployer, a), amount);
         assertEq(token.allowance(deployer, b), 0, "an approval leaked to another spender");
-        assertEq(token.allowance(a, deployer), 0, "an approval leaked to the reverse pair");
+        // The reverse pair (a -> deployer) is only set when a is the deployer approving itself.
+        assertEq(token.allowance(a, deployer), a == deployer ? amount : 0, "an approval leaked to the reverse pair");
+        assertEq(token.allowance(b, deployer), 0, "an approval leaked to an unrelated pair");
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -347,7 +357,9 @@ contract GENESISTokenFuzzTest is Test {
         vm.prank(deployer);
         (bool ok,) = address(token).call{value: value}(abi.encodeCall(GENESISToken.transfer, (to, 1)));
         assertFalse(ok, "a non-payable transfer accepted ETH");
-        assertEq(token.balanceOf(to), 0);
+        assertEq(token.balanceOf(to), to == deployer ? SUPPLY : 0);
+        assertEq(token.balanceOf(deployer), SUPPLY, "a rejected call moved tokens");
+        assertEq(address(token).balance, 0, "a rejected call kept ETH");
     }
 
     function test_runtimeCodeIsFixedByConstruction() public {
